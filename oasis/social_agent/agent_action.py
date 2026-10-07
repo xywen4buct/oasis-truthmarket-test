@@ -21,49 +21,189 @@ from oasis.social_platform.typing import ActionType
 
 class SocialAction:
 
+    def _list_products_openai_schema(self): # add by wen 2026-10-02
+        return {
+            "type": "function",
+            "function": {
+                "name": "list_products",
+                "description": (
+                    "List multiple products for sale in the market for the current round. "
+                    "Each product must specify advertised_quality and product_quality as 'HQ' or 'LQ'. "
+                    "quantity defaults to 1."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "products": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "advertised_quality": {
+                                        "type": "string",
+                                        "enum": ["HQ", "LQ"],
+                                        "description": "What you tell buyers."
+                                    },
+                                    "product_quality": {
+                                        "type": "string",
+                                        "enum": ["HQ", "LQ"],
+                                        "description": "What you actually produce."
+                                    },
+                                    "has_warrant": {
+                                        "type": "boolean",
+                                        "description": "Whether to offer a truth warrant. Default false."
+                                    },
+                                    "quantity": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "description": "Number of products with this specification. Default 1."
+                                    }
+                                },
+                                "required": ["advertised_quality", "product_quality"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["products"],
+                    "additionalProperties": False
+                }
+            }
+        }
+
+    def _rate_transactions_openai_schema(self): #add by wen 2026-10-02
+        return {
+            "type": "function",
+            "function": {
+                "name": "rate_transactions",
+                "description": "Rate multiple completed transactions to influence sellers' reputation.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "ratings": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "transaction_id": {
+                                        "type": "integer",
+                                        "description": "The transaction ID to rate."
+                                    },
+                                    "rating": {
+                                        "type": "integer",
+                                        "minimum": -2,
+                                        "maximum": 2,
+                                        "description": "Rating in [-2, -1, 0, 1, 2]."
+                                    }
+                                },
+                                "required": ["transaction_id", "rating"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["ratings"],
+                    "additionalProperties": False
+                }
+            }
+        }
+
+    def _challenge_warrants_openai_schema(self): #add by wen 2026-10-02
+        return {
+            "type": "function",
+            "function": {
+                "name": "challenge_warrants",
+                "description": "Challenge the warrants of multiple previously purchased products.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "challenges": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "transaction_id": {
+                                        "type": "integer",
+                                        "description": "The transaction ID to challenge."
+                                    },
+                                    "rating": {
+                                        "type": "integer",
+                                        "minimum": -2,
+                                        "maximum": 2,
+                                        "description": "Rating in [-2, -1, 0, 1, 2]."
+                                    }
+                                },
+                                "required": ["transaction_id", "rating"],
+                                "additionalProperties": False
+                            }
+                        }
+                    },
+                    "required": ["challenges"],
+                    "additionalProperties": False
+                }
+            }
+        }
+
     def __init__(self, agent_id: int, channel: Channel):
         self.agent_id = agent_id
         self.channel = channel
 
     def get_openai_function_list(self) -> list[FunctionTool]:
-        return [
-            FunctionTool(func) for func in [
-                self.create_post,
-                self.like_post,
-                self.repost,
-                self.quote_post,
-                self.unlike_post,
-                self.dislike_post,
-                self.undo_dislike_post,
-                self.search_posts,
-                self.search_user,
-                self.trend,
-                self.refresh,
-                self.do_nothing,
-                self.create_comment,
-                self.like_comment,
-                self.dislike_comment,
-                self.unlike_comment,
-                self.undo_dislike_comment,
-                self.follow,
-                self.unfollow,
-                self.mute,
-                self.unmute,
-                self.purchase_product,
-                self.interview,
-                self.report_post,
-                self.join_group,
-                self.leave_group,
-                self.send_to_group,
-                self.create_group,
-                self.list_product,
-                self.list_products,
-                self.reenter_market,
-                self.purchase_products,
-                self.challenge_warrants,
-                self.rate_transactions,
-            ]
+        funcs = [
+            self.create_post,
+            self.like_post,
+            self.repost,
+            self.quote_post,
+            self.unlike_post,
+            self.dislike_post,
+            self.undo_dislike_post,
+            self.search_posts,
+            self.search_user,
+            self.trend,
+            self.refresh,
+            self.do_nothing,
+            self.create_comment,
+            self.like_comment,
+            self.dislike_comment,
+            self.unlike_comment,
+            self.undo_dislike_comment,
+            self.follow,
+            self.unfollow,
+            self.mute,
+            self.unmute,
+            self.purchase_product,
+            self.interview,
+            self.report_post,
+            self.join_group,
+            self.leave_group,
+            self.send_to_group,
+            self.create_group,
+            self.list_product,
+            self.list_products,
+            self.reenter_market,
+            self.purchase_products,
+            self.challenge_warrants,
+            self.rate_transactions,
         ]
+
+        custom_schemas = {
+            "list_products": self._list_products_openai_schema(),
+            "rate_transactions": self._rate_transactions_openai_schema(),
+            "challenge_warrants": self._challenge_warrants_openai_schema(),
+        }
+
+        tools = []
+        for func in funcs:
+            name = getattr(func, "__name__", "")
+            if name in custom_schemas:
+                tools.append(
+                    FunctionTool(
+                        func,
+                        openai_tool_schema=custom_schemas[name]
+                    )
+                )
+            else:
+                tools.append(FunctionTool(func))
+
+        return tools
 
     async def perform_action(self, message: Any, type: str):
         message_id = await self.channel.write_to_receive_queue(
@@ -802,7 +942,7 @@ class SocialAction:
         return await self.perform_action(product_details, 
                                         ActionType.LIST_PRODUCT.value)
 
-    async def list_products(self, products: list):
+    async def list_products(self, products: list[dict]): #revised by wen 2026-10-02
         r"""List multiple products for sale in the market for the current round.
 
         This method allows you to list multiple products at once, each with different
@@ -915,7 +1055,7 @@ class SocialAction:
         """
         return await self.perform_action(product_id, ActionType.PURCHASE_PRODUCT_ID.value)
 
-    async def purchase_products(self, product_ids: list):
+    async def purchase_products(self, product_ids: list[int]): #revised by wen 2026-10-02
         r"""Purchase multiple products based on their unique product IDs.
 
         This method allows you to purchase multiple products at once, which is more efficient

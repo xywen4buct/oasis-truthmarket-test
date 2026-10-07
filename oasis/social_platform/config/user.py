@@ -27,18 +27,21 @@ class UserInfo:
     is_controllable: bool = False
     market_type: str = 'reputation_and_warrant'
 
-    def to_custom_system_message(self, user_info_template: TextPrompt) -> str:
+    def to_custom_system_message(self, user_info_template: TextPrompt) -> str: # revised by wen 2026-10-02
         required_keys = user_info_template.key_words
-        info_keys = set(self.profile.keys())
-        missing = required_keys - info_keys
-        extra = info_keys - required_keys
-        if missing:
-            raise ValueError(
-                f"Missing required keys in UserInfo.profile: {missing}")
-        if extra:
-            warnings.warn(f"Extra keys not used in UserInfo.profile: {extra}")
 
-        return user_info_template.format(**self.profile)
+        # profile 可能为 None
+        profile = self.profile or {}
+
+        # 只保留模板需要的字段
+        filtered_profile = {k: v for k, v in profile.items() if k in required_keys}
+
+        # 检查模板要的字段是否都在
+        missing = required_keys - set(filtered_profile.keys())
+        if missing:
+            raise ValueError(f"Missing required keys in UserInfo.profile: {missing}")
+
+        return user_info_template.format(**filtered_profile)
 
     def to_reddit_system_message(self) -> str:
         name_string = ""

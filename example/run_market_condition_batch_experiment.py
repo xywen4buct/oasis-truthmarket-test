@@ -12,6 +12,9 @@ from datetime import datetime
 import json
 from dotenv import load_dotenv
 from typing import Optional
+from pathlib import Path
+from log_capture import setup_file_logging
+
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -310,7 +313,16 @@ Examples:
     )
 
     args = parser.parse_args()
-    
+
+    # ==== 重定向所有输出到日志文件 ====
+    log_dir = Path("experiments") / args.experiment_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"run_{ts}.log"
+    setup_file_logging(log_path, keep_console=False)
+    print(f"[Logging] Output redirected to: {log_path}")
+    # ====================================
+
     # Set model platform and type BEFORE loading config (so they can override config values)
     if args.model_platform:
         SimulationConfig.MODEL_PLATFORM = args.model_platform

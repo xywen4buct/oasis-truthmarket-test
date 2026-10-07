@@ -3,10 +3,13 @@
 
 experiment:
   runs: 5
+  #runs: 2
   num_sellers: 10
   num_buyers: 10
+  #num_sellers: 2
+  #num_buyers: 2
   simulation_rounds: 10
-
+  #simulation_rounds: 5
 market_params:
   # Production costs
   hq_cost: 4.0

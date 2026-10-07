@@ -2,10 +2,12 @@
 # Profile metadata is encoded in filename (model, scale, runs, profile).
 
 experiment:
-  runs: 5
+  #runs: 5
+  runs: 2
   num_sellers: 5
   num_buyers: 5
-  simulation_rounds: 10
+  #simulation_rounds: 10
+  simulation_rounds: 5
 
 market_params:
   # Production costs

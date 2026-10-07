@@ -14,11 +14,14 @@ class SimulationConfig:
     """Market simulation configuration class"""
 
     # Experiment configuration
-    RUNS = 5
-    NUM_SELLERS = 5
-    NUM_BUYERS = 5
-    SIMULATION_ROUNDS = 10
-
+    #RUNS = 5
+    RUNS = 1
+    #NUM_SELLERS = 5
+    #NUM_BUYERS = 5
+    NUM_SELLERS = 2
+    NUM_BUYERS = 2
+    #SIMULATION_ROUNDS = 10
+    SIMULATION_ROUNDS = 5
     # Market parameters (Updated to match economic model)
     MARKET_PARAMS = {
         # Production costs

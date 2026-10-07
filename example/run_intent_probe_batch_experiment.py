@@ -25,6 +25,9 @@ import os
 import sys
 from datetime import datetime
 
+
+from pathlib import Path
+from log_capture import setup_file_logging
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -228,6 +231,15 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # ==== 重定向所有输出到日志文件 ====
+    log_dir = Path("experiments/_logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"intent_probe_{ts}.log"
+    setup_file_logging(log_path, keep_console=False)
+    print(f"[Logging] All output redirected to: {log_path}")
+    # ====================================
 
     # Load configuration from YAML if provided
     if args.config_file:
