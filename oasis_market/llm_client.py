@@ -15,7 +15,7 @@ class LLMClient:
 
     def __init__(self, model_platform=None, model_type=None,
                  api_key=None, base_url=None,
-                 temperature: float = 0.7, max_tokens: int = 400):
+                 temperature: float = 0.7, max_tokens: int = 2000):
         from camel.models import ModelFactory
 
         self.model_platform = model_platform or os.getenv("MODEL_PLATFORM", "openai")
@@ -50,33 +50,37 @@ class LLMClient:
             model_config_dict=model_config,
         )
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
+    def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
         from camel.agents import ChatAgent
 
-        agent = ChatAgent(system_message=system_prompt, model=self.model)
-        resp = agent.step(user_prompt)
+        for attempt in range(max_retries + 1):
+            agent = ChatAgent(system_message=system_prompt, model=self.model)
+            resp = agent.step(user_prompt)
 
-        # 兼容 CAMEL 不同版本：优先 msgs，回退 msg
-        msg = None
-        if hasattr(resp, "msgs") and resp.msgs:
-            msg = resp.msgs[0]
-        elif hasattr(resp, "msg") and resp.msg is not None:
-            msg = resp.msg
+            # 1) 优先从 resp.msgs 找非空
+            if hasattr(resp, "msgs") and resp.msgs:
+                for m in reversed(resp.msgs):
+                    content = m if isinstance(m, str) else getattr(m, "content", None)
+                    if content:
+                        return content
 
-        if msg is None:
-            return ""
-        # msg 可能是 BaseMessage，也可能是 str
-        if isinstance(msg, str):
-            return msg
+            # 2) 回退到 resp.msg
+            if hasattr(resp, "msg") and resp.msg is not None:
+                msg = resp.msg
+                if isinstance(msg, str) and msg:
+                    return msg
+                c = getattr(msg, "content", None)
+                if c:
+                    return c
 
-        # 计数（临时）
-        if not hasattr(self, "_call_count"):
-            self._call_count = 0
-        self._call_count += 1
-        if self._call_count % 100 == 0:
-            print(f"[LLMClient] calls = {self._call_count}")
+            # 3) 第一次空返回时，打印诊断
+            if attempt == 0:
+                print(f"[DEBUG-EMPTY] resp type={type(resp).__name__}")
+                print(f"[DEBUG-EMPTY] attrs={[a for a in dir(resp) if not a.startswith('_')]}")
+                if hasattr(resp, "info"):
+                    print(f"[DEBUG-EMPTY] info={getattr(resp, 'info', None)!r}")
 
-        return getattr(msg, "content", "") or ""
+        return ""
 
 
 class DummyLLMClient:

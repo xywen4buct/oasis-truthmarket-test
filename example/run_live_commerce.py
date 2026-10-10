@@ -124,9 +124,18 @@ def main():
                         help="每个治理条件重复次数")
     parser.add_argument("--sessions", type=int, default=5)
     parser.add_argument("--consumers", type=int, default=10)
-    parser.add_argument("--out", type=str, default="results/governance_experiment.csv")
+    #parser.add_argument("--out", type=str, default="results/governance_experiment.csv")
+    parser.add_argument("--out", type=str, default="")
+    parser.add_argument("--model-tag", type=str, default="",
+                        help="模型标签，用于区分不同 LLM 的实验结果，如 gpt4omini / gpt6luna")
     args = parser.parse_args()
 
+    # 自动生成输出路径
+    if not args.out:
+        if args.model_tag:
+            args.out = f"results/governance_{args.model_tag}.csv"
+        else:
+            args.out = "results/governance_experiment.csv"
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
     rows = []
@@ -139,6 +148,7 @@ def main():
             m["condition"] = cond["name"]
             m["rep"] = rep
             m["seed"] = seed
+            m["model_tag"] = args.model_tag or "unknown"
             rows.append(m)
             print(f"  rep {rep}: " + "  ".join(f"{k}={v:.4f}" for k, v in m.items()
                                                 if isinstance(v, float)))
@@ -156,7 +166,7 @@ def main():
             print(f"  {key}: mean={statistics.mean(vals):.4f}  sd={statistics.stdev(vals) if len(vals) > 1 else 0:.4f}")
 
     # 落 CSV
-    fieldnames = ["condition", "rep", "seed",
+    fieldnames = ["condition", "rep", "seed", "model_tag",
                   "manipulation_rate", "detection_rate", "false_positive_rate",
                   "conversion_rate", "retention_rate",
                   "reputation_variance", "trust_index"]
