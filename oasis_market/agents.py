@@ -47,7 +47,7 @@ class BaseAgent:
     def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         if self.llm is None:
             return ""
-        # TODO: 接入 OASIS/CAMEL LLM 客户端（见"接入点 1"）
+        # self.llm 是 LLMClient 或 DummyLLMClient，都有 .chat() 方法
         return self.llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
 
 
@@ -69,32 +69,37 @@ class StreamerAgent(BaseAgent):
         return self.current_product
 
     def act(self, session_ctx, **kwargs) -> List[InteractionSignal]:
-        # 骨架：按阶段产出主播侧信号
-        # TODO: 接入 prompt.py 的 STREAMER_SYSTEM，用 LLM 生成话术
-        sid = session_ctx.session_id
-        ph = session_ctx.phase.value
-        st = session_ctx.step_in_phase
+        from prompt import STREAMER_SYSTEM, build_streamer_prompt
+
+        sid, ph, st = session_ctx.session_id, session_ctx.phase.value, session_ctx.step_in_phase
         signals = []
 
-        if session_ctx.phase == LivePhase.WARMUP:
-            signals.append(make_signal("danmaku", self.agent_id, "streamer",
-                                       "real", sid, ph, st,
-                                       content="欢迎来到直播间~", intensity=1.0))
-        elif session_ctx.phase == LivePhase.EXPLAIN:
-            signals.append(make_signal("danmaku", self.agent_id, "streamer",
-                                       "real", sid, ph, st,
-                                       content="这款产品的卖点是...", intensity=1.0))
-        elif session_ctx.phase == LivePhase.PROMOTE:
-            signals.append(make_signal("danmaku", self.agent_id, "streamer",
-                                       "real", sid, ph, st,
-                                       content="最后30秒，下单送赠品！", intensity=1.0))
-        elif session_ctx.phase == LivePhase.CLOSING:
-            signals.append(make_signal("danmaku", self.agent_id, "streamer",
-                                       "real", sid, ph, st,
-                                       content="感谢大家，明天见~", intensity=1.0))
+        # 1. 主播话术：优先用 LLM，失败或 DummyClient 时回退到骨架
+        content = ""
+        if self.llm is not None:
+            try:
+                content = self._call_llm(
+                    STREAMER_SYSTEM,
+                    build_streamer_prompt(self, session_ctx, self.current_product),
+                ).strip()
+            except Exception as e:
+                print(f"[StreamerAgent] LLM 调用失败: {e}")
+                content = ""
+
+        if not content:
+            # 回退：按阶段给固定话术
+            if session_ctx.phase == LivePhase.WARMUP:
+                content = "欢迎来到直播间~"
+            elif session_ctx.phase == LivePhase.EXPLAIN:
+                content = "这款产品的卖点是..."
+            elif session_ctx.phase == LivePhase.PROMOTE:
+                content = "最后30秒，下单送赠品！"
+            elif session_ctx.phase == LivePhase.CLOSING:
+                content = "感谢大家，明天见~"
+
+        signals.append(make_signal("danmaku", self.agent_id, "streamer", "real",
+                                   sid, ph, st, content=content, intensity=1.0))
         return signals
-
-
 # ------------------------------------------------------------------
 # 直播间运营者
 # ------------------------------------------------------------------
@@ -149,27 +154,66 @@ class ConsumerAgent(BaseAgent):
         self.streamer_reputation = streamer_reputation
 
     def act(self, session_ctx, current_product=None, **kwargs) -> List[InteractionSignal]:
-        # 骨架：简单启发式，后续用 LLM 替代
+        from prompt import CONSUMER_SYSTEM, build_consumer_prompt
+
+        sid, ph, st = session_ctx.session_id, session_ctx.phase.value, session_ctx.step_in_phase
+        signals = []
+
+        # ---- 1. 统计观测到的信号 ----
         n_visible = len(self.observed_signals)
         n_flagged = sum(1 for v in self.observed_signals
                         if v.risk_label == "suspected_manipulation")
         manip_ratio = n_flagged / n_visible if n_visible else 0.0
 
         real_intensity = sum(v.signal.intensity for v in self.observed_signals
-                             if v.signal.source_label == "real" and v.risk_label != "hidden")
-        participate = (real_intensity >= 1.0) and (manip_ratio < 0.5) \
-                      and (self.streamer_reputation > 0.4)
+                             if v.signal.source_label == "real"
+                             and v.risk_label != "hidden")
 
-        sid = session_ctx.session_id
-        ph = session_ctx.phase.value
-        st = session_ctx.step_in_phase
-        signals: List[InteractionSignal] = []
+        # ---- 2. 参与决策：LLM 优先 ----
+        participate = None
+        if self.llm is not None:
+            try:
+                system_prompt = CONSUMER_SYSTEM
+                user_prompt = build_consumer_prompt(self, session_ctx, self.streamer_reputation)
+                raw = self._call_llm(system_prompt, user_prompt).strip()
+                print(f"[Consumer {self.agent_id}] LLM raw = {raw!r}")
 
+                import re
+                # 优先找 0~100 的整数
+                m = re.search(r"\d+", raw)
+                if m:
+                    score = max(0, min(100, int(m.group())))
+                    participate = self.rng.random() < (score / 100.0)
+                else:
+                    # 兼容 LLM 偶尔输出"参与"/"观望"
+                    raw_lower = raw.lower()
+                    if "观望" in raw or "不参与" in raw or "wait" in raw_lower:
+                        participate = False
+                    elif "参与" in raw or "购买" in raw or "buy" in raw_lower or "participate" in raw_lower:
+                        participate = True
+            except Exception as e:
+                print(f"[ConsumerAgent] LLM 调用失败: {e}")
+
+        # ---- 3. 回退启发式 ----
+        # 关键修正：披露风险只降低"下单概率"，不直接否决参与。
+        # 否则 detect_punish_disclose 条件下消费者全部观望 → 市场冻结 → 反向激励操纵。
+        if participate is None:
+            can_participate = (real_intensity >= 1.0) and (self.streamer_reputation > 0.4)
+            if can_participate:
+                # 参与概率：披露越多，越保守，但保留基础参与意愿
+                participate = self.rng.random() < (1.0 - 0.5 * manip_ratio)
+            else:
+                participate = False
+
+        # ---- 4. 产出信号 ----
         if participate:
             signals.append(make_signal("like", self.agent_id, "consumer",
                                        "real", sid, ph, st, intensity=1.0))
+
             if session_ctx.phase == LivePhase.PROMOTE and not self.purchased_in_session:
-                if self.rng.random() < 0.4:
+                # 下单概率随披露比例下降
+                order_prob = 0.4 * (1.0 - 0.8 * manip_ratio)
+                if self.rng.random() < order_prob:
                     price = current_product.price if current_product else 1.0
                     signals.append(make_signal("order", self.agent_id, "consumer",
                                                "real", sid, ph, st, intensity=price))
@@ -179,37 +223,55 @@ class ConsumerAgent(BaseAgent):
                 signals.append(make_signal("follow", self.agent_id, "consumer",
                                            "real", sid, ph, st, intensity=-1.0))
         return signals
-
-
 # ------------------------------------------------------------------
 # 互动操纵智能体（水军/虚假账号）
 # ------------------------------------------------------------------
 class ManipulatorAgent(BaseAgent):
     STRATEGIES = ["burst_like", "fake_danmaku", "follow_wave", "reward_script"]
 
-    def __init__(self, agent_id, llm_client=None, rng=None, strategy="burst_like"):
+    def __init__(self, agent_id, llm_client=None, rng=None, strategy="burst_like",
+                 governance_config=None):
         super().__init__(agent_id, "manipulator", llm_client, rng)
         self.strategy = strategy
+        self.gov = governance_config  # GovernanceConfig 或 None
+
+    def _should_act(self) -> bool:
+        """处罚越强，水军行动概率越低。"""
+        if self.gov is None:
+            return True
+        # punishment_severity=0 -> 100% 行动；=1 -> 50% 行动
+        return self.rng.random() < (1.0 - 0.5 * self.gov.punishment_severity)
+
+    def _intensity_scale(self) -> float:
+        """处罚越强，单次信号强度越低。"""
+        if self.gov is None:
+            return 1.0
+        # punishment_severity=0 -> 1.0x；=1 -> 0.3x
+        return 1.0 - 0.7 * self.gov.punishment_severity
 
     def act(self, session_ctx, **kwargs) -> List[InteractionSignal]:
+        if not self._should_act():
+            return []
+
         sid = session_ctx.session_id
         ph = session_ctx.phase.value
         st = session_ctx.step_in_phase
+        scale = self._intensity_scale()
 
         if self.strategy == "burst_like":
             return [make_signal("like", self.agent_id, "manipulator", "manipulative",
-                                sid, ph, st, intensity=self.rng.uniform(20, 50))]
+                                sid, ph, st, intensity=self.rng.uniform(20, 50) * scale)]
         if self.strategy == "fake_danmaku":
             return [make_signal("danmaku", self.agent_id, "manipulator", "manipulative",
                                 sid, ph, st, content="太好用了，已下单！",
-                                intensity=self.rng.uniform(3, 8))]
+                                intensity=self.rng.uniform(3, 8) * scale)]
         if self.strategy == "follow_wave":
             return [make_signal("follow", self.agent_id, "manipulator", "manipulative",
-                                sid, ph, st, intensity=self.rng.uniform(5, 15))]
+                                sid, ph, st, intensity=self.rng.uniform(5, 15) * scale)]
         if self.strategy == "reward_script":
             return [make_signal("reward", self.agent_id, "manipulator", "manipulative",
                                 sid, ph, st, content="老板大气！",
-                                intensity=self.rng.uniform(10, 30))]
+                                intensity=self.rng.uniform(10, 30) * scale)]
         return []
 
 
