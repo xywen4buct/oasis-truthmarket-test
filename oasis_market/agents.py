@@ -88,6 +88,10 @@ class StreamerAgent(BaseAgent):
             signals.append(make_signal("danmaku", self.agent_id, "streamer",
                                        "real", sid, ph, st,
                                        content="最后30秒，下单送赠品！", intensity=1.0))
+        elif session_ctx.phase == LivePhase.CLOSING:
+            signals.append(make_signal("danmaku", self.agent_id, "streamer",
+                                       "real", sid, ph, st,
+                                       content="感谢大家，明天见~", intensity=1.0))
         return signals
 
 
@@ -152,8 +156,8 @@ class ConsumerAgent(BaseAgent):
         manip_ratio = n_flagged / n_visible if n_visible else 0.0
 
         real_intensity = sum(v.signal.intensity for v in self.observed_signals
-                             if v.risk_label is None)
-        participate = (real_intensity > 3.0) and (manip_ratio < 0.3) \
+                             if v.signal.source_label == "real" and v.risk_label != "hidden")
+        participate = (real_intensity >= 1.0) and (manip_ratio < 0.5) \
                       and (self.streamer_reputation > 0.4)
 
         sid = session_ctx.session_id

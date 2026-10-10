@@ -25,10 +25,14 @@ def main():
     all_signals, all_events, all_orders, rep_traj = [], [], [], []
     streamer.pick_product()
 
-    for s_idx in range(1):
+    for s_idx in range(3):
+        # 每场开始前重置消费者的"本场已下单"标志
+        for c in consumers:
+            c.purchased_in_session = False
+
         session_id = f"sess_{s_idx}"
         for phase in iter_phases():
-            ctx = SessionContext(session_id, streamer.agent_id, s_idx, phase, 0, 2)
+            ctx = SessionContext(session_id, streamer.agent_id, s_idx, phase, 0, 3)
             while not ctx.is_phase_done:
                 raw = []
                 raw += streamer.act(ctx)
@@ -56,7 +60,7 @@ def main():
                          "reputation": streamer.reputation})
 
     m = compute_metrics(all_signals, all_events, all_orders, rep_traj,
-                        num_consumers=len(consumers), num_sessions=1)
+                        num_consumers=len(consumers), num_sessions=3)
     for k, v in m.items():
         print(f"  {k}: {v:.4f}")
 
