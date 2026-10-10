@@ -247,3 +247,33 @@ docs/
 .continue/
 
 overleaf_*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# 环境变量
+.env
+.env.local
+
+# 数据 / 结果（按你实际路径调整）
+data/raw/
+data/cache/
+results/
+logs/
+*.log
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
