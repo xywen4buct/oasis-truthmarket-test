@@ -45,6 +45,28 @@ GOVERNANCE_CONDITIONS = [
      "punishment_severity": 0.8, "disclosure_level": 1.0},
 ]
 
+def compute_session_satisfaction(session_signals, session_orders,
+                                 manipulation_rate=None):
+    """计算一场直播的消费者平均满意度。
+
+    设计逻辑：
+    - 有购买时，消费者满意度取决于本场操纵占比
+    - 无购买时，返回中性 0.5
+    - 操纵越高，满意度越低（消费者感知被骗）
+    """
+    if not session_orders:
+        return 0.5   # 没有交易，中性
+
+    # 计算本场真实操纵占比
+    manip = [s for s in session_signals
+             if s.get("source_label") == "manipulative"]
+    if manipulation_rate is None:
+        manipulation_rate = len(manip) / max(len(session_signals), 1)
+
+    # 满意度 = 1 - 操纵占比（线性映射）
+    # 也可以改成非线性：satisfaction = max(0.0, 1 - 1.5 * manip_ratio)
+    satisfaction = 1.0 - manipulation_rate
+    return max(0.0, min(1.0, satisfaction))
 
 def run_one(condition: dict, seed: int,
             num_streamers=2, num_consumers=10, num_manipulators=3,
@@ -82,6 +104,9 @@ def run_one(condition: dict, seed: int,
             c.purchased_in_session = False
 
         session_id = f"sess_{s_idx}_seed{seed}"
+        session_signals = []  # ← 新增：本场累积
+        session_orders = []  # ← 新增
+
         for phase in iter_phases():
             ctx = SessionContext(session_id, streamer.agent_id, s_idx,
                                  phase, 0, steps_per_phase)
@@ -97,20 +122,35 @@ def run_one(condition: dict, seed: int,
                 for c in consumers:
                     c.observe(visible, streamer_reputation=streamer.reputation)
 
+                session_signals += [s.to_dict() for s in raw]  # ← 累积
                 all_signals += [s.to_dict() for s in raw]
                 all_events += [e.__dict__ for e in events]
                 for s in raw:
                     if s.signal_type == "order":
-                        all_orders.append({
+                        order = {
                             "consumer_id": s.source_agent_id,
                             "session_id": session_id,
-                            "product_id": getattr(streamer.current_product, "product_id", "p0"),
-                        })
+                            "product_id": getattr(streamer.current_product,
+                                                  "product_id", "p0"),
+                        }
+                        session_orders.append(order)  # ← 累积
+                        all_orders.append(order)
                 ctx.advance()
 
-        rep_traj.append({"streamer_id": streamer.agent_id,
-                         "session_index": s_idx,
-                         "reputation": streamer.reputation})
+        # ---- 场次结束：更新主播声誉 ----
+        satisfaction = compute_session_satisfaction(
+            session_signals, session_orders)
+        old_rep = streamer.reputation
+        new_rep = streamer.update_reputation(satisfaction)
+        print(f"  [Session {s_idx}] streamer {streamer.agent_id} "
+              f"reputation {old_rep:.3f} -> {new_rep:.3f} "
+              f"(satisfaction={satisfaction:.3f})")
+
+        rep_traj.append({
+            "streamer_id": streamer.agent_id,
+            "session_index": s_idx,
+            "reputation": streamer.reputation,
+        })
 
     return compute_metrics(all_signals, all_events, all_orders, rep_traj,
                            num_consumers, num_sessions)

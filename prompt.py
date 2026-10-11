@@ -23,22 +23,20 @@ STREAMER_SYSTEM = """你是直播电商主播。你正在一场直播中面对�
 
 请用一行中文输出你本步要发布的一条弹幕话术，不要输出其他内容。"""
 
-CONSUMER_SYSTEM = """你是直播电商消费者。你正在观看一场直播，考虑是否参与互动。
-你只能看到公开信号和主播历史声誉，无法判断信号是否由真实用户产生。
-
-请根据下面的规则，评估你此刻"参与互动"的意愿强度，输出一个 0 到 100 的整数：
+CONSUMER_SYSTEM = """你是直播电商消费者...
+请根据下面的规则，评估你此刻"参与互动"的意愿强度，输出 0 到 100 的整数：
 
 - 主播历史声誉 0.5 为基准分 50 分
 - 声誉每高 0.1，加 10 分；每低 0.1，减 10 分
 - 被披露为疑似操纵的信号占比每增加 20%，减 20 分
-- 真实信号总强度 >= 3.0，加 10 分
-
-输出要求：
-- 你的完整回复必须是一个 0 到 100 之间的整数
-- 不要输出任何汉字、标点、空格、单位或其他解释
-- 例如：`50`、`70`、`40`
-
-只输出一个整数："""
+- **所有可见信号的总强度 >= 5，加 10 分**（社会证明效应）
+- **被披露的操纵占比超过 60% 时，直接输出 0**
+输出要求（必须严格遵守）：
+- 你的回复必须且只能是一个 0 到 100 之间的整数
+- 不要输出任何汉字、标点、空格、换行、单位或解释
+- 直接输出数字，例如：`50`
+- 输出格式示例：50
+"""
 
 OPERATOR_SYSTEM = """你是直播间运营者，负责单场直播的日常运作与销售表现。
 你可以发布运营侧互动信号（引导话术、控评、节奏控制），但不能直接下单。
@@ -92,12 +90,20 @@ def build_consumer_prompt(agent, session_ctx, streamer_reputation=0.5) -> str:
     n_flagged = sum(1 for v in agent.observed_signals
                     if v.risk_label == "suspected_manipulation")
     n_hidden = sum(1 for v in agent.observed_signals if v.risk_label == "hidden")
+    # 修改前
     real_intensity = sum(v.signal.intensity for v in agent.observed_signals
-                         if v.signal.source_label == "real" and v.risk_label != "hidden")
+                         if v.signal.source_label == "real"
+                         and v.risk_label != "hidden")
+
+    # 修改后：消费者看到的是"所有可见信号的强度"，不分真假
+    # 因为消费者本来就分辨不出真假
+    visible_intensity = sum(v.signal.intensity for v in agent.observed_signals
+                            if v.risk_label != "hidden")
 
     extra = (f"主播历史声誉：{streamer_reputation:.2f}\n"
              f"你看到的公开信号数：{n}\n"
              f"其中被披露为疑似操纵的：{n_flagged}\n"
              f"被屏蔽的：{n_hidden}\n"
-             f"来自真实用户的信号总强度：{real_intensity:.1f}")
-    return _context_str(session_ctx, extra) + "\n\n请回答 `参与` 或 `观望`："
+             f"来自真实用户的信号总强度：{real_intensity:.1f}\n"
+             f"所有可见信号的总强度：{visible_intensity:.1f}")
+    return _context_str(session_ctx, extra) + "\n\n请只输出一个 0 到 100 之间的整数，不要输出任何其他文字："

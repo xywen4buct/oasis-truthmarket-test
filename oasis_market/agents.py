@@ -68,6 +68,27 @@ class StreamerAgent(BaseAgent):
             self.current_product = self.rng.choice(self.product_pool)
         return self.current_product
 
+    def update_reputation(self, observed_satisfaction: float,
+                          learning_rate: float = 0.4) -> float:
+        """贝叶斯式声誉更新。
+
+        将声誉视为消费者满意度的后验估计。
+        用指数加权模拟贝叶斯学习：
+            posterior = (1 - alpha) * prior + alpha * likelihood
+
+        参数：
+            observed_satisfaction: 本场直播的消费者平均满意度（0~1）
+            learning_rate: 学习率（0~1），越大对近期反馈越敏感
+
+        返回：
+            更新后的声誉
+        """
+        observed_satisfaction = max(0.0, min(1.0, observed_satisfaction))
+        old = self.reputation
+        self.reputation = (1 - learning_rate) * old + learning_rate * observed_satisfaction
+        self.reputation = max(0.0, min(1.0, self.reputation))
+        return self.reputation
+
     def act(self, session_ctx, **kwargs) -> List[InteractionSignal]:
         from prompt import STREAMER_SYSTEM, build_streamer_prompt
 
