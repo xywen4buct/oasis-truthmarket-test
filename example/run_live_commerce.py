@@ -69,7 +69,7 @@ def compute_session_satisfaction(session_signals, session_orders,
     return max(0.0, min(1.0, satisfaction))
 
 def run_one(condition: dict, seed: int,
-            num_streamers=2, num_consumers=10, num_manipulators=3,
+            num_streamers=2, num_consumers=10, num_manipulators=1,
             num_sessions=5, steps_per_phase=3,
             use_llm=False) -> dict:
     rng = random.Random(seed)
